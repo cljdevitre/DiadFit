@@ -1227,7 +1227,7 @@ CI_split=0.67, CI_neon=0.67,  Ne_pickle_str=None, Ar_pickle_str=None, pref_Ne=No
     
         
         
-    min_lowD_SC_Split=df['Corrected_Splitting']>=102.7623598753032+offset
+    min_lowD_SC_Split=df['Corrected_Splitting']>=102.73# If we dont want negative densities, set this to tihs exactly. 102.75025552873848 ##102.7623598753032+offset
     max_lowD_SC_Split=df['Corrected_Splitting']<=103.1741034592534+offset
     # Range for SC med density
     min_MD_SC_Split=df['Corrected_Splitting']>103.0608505403591+offset
