@@ -81,7 +81,7 @@ config2=diad_id_config,
 path=spectra_path, filename=filename,
 filetype=filetype, plot_figure=True, close_figure=False,
 Diad_pos=GroupN_df['Diad1_pos'].iloc[i],
-HB_pos=GroupN_df['HB1_pos'].iloc[i])
+HB_pos=GroupN_df['HB1_pos'].iloc[i],  minimise='least_squares')
 
 
 diad2_fit_config_strong=pf.diad2_fit_config(model_name=model_name,
@@ -99,7 +99,7 @@ path=spectra_path, filename=filename, filetype=filetype,
 plot_figure=True, close_figure=False,
 Diad_pos=GroupN_df['Diad2_pos'].iloc[i],
 HB_pos=GroupN_df['HB2_pos'].iloc[i],
-C13_pos=GroupN_df['C13_pos'].iloc[i])
+C13_pos=GroupN_df['C13_pos'].iloc[i],  minimise='least_squares')
 
 
 

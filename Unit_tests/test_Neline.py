@@ -49,7 +49,7 @@ config=Ne_Config_est,
     Ne_center_2=df_fit_params['Peak2_cent'].iloc[0],
     Ne_prom_1=df_fit_params['Peak1_prom'].iloc[0],
     Ne_prom_2=df_fit_params['Peak2_prom'].iloc[0],
-    const_params=False)
+    const_params=False,  minimise='least_squares')
 
 
 
