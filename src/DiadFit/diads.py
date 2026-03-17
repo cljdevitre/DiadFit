@@ -1689,7 +1689,7 @@ class diad2_fit_config:
 ## Testing generic model
 
 
-def fit_gaussian_voigt_generic_diad(config1, *, diad1=False, diad2=False, path=None, filename=None, xdat=None, ydat=None, span=None,  plot_figure=True, dpi=200, Diad_pos=None, HB_pos=None, C13_pos=None, fit_peaks=None, block_print=True):
+def fit_gaussian_voigt_generic_diad(config1, *, diad1=False, diad2=False, path=None, filename=None, xdat=None, ydat=None, span=None,  plot_figure=True, dpi=200, Diad_pos=None, HB_pos=None, C13_pos=None, fit_peaks=None, block_print=True, py_baseline=None, minimise='weighted_least_squares'):
 
 
     """ This function fits a voigt/Pseudovoigt curves to background subtracted data for your diads
@@ -1738,6 +1738,12 @@ def fit_gaussian_voigt_generic_diad(config1, *, diad1=False, diad2=False, path=N
 
     block_print: bool
         If true, prints a few status updates as it goes to help debug
+
+    py_baseline:
+        the baseline from the diadbaseline function
+
+    minimise='weighted_least_squares' or 'least squares'
+        uses a weighted least squares cost function. Prior to 1.0.19, least squares was default.
 
     Returns
     -------------------
@@ -2079,19 +2085,46 @@ def fit_gaussian_voigt_generic_diad(config1, *, diad1=False, diad2=False, path=N
 
 
 
-    # Regardless of fit, evaluate model
-    init = model_F.eval(params, x=xdat)
-    result = model_F.fit(ydat, params, x=xdat)
+    if minimise=='least_squares':
+    # all points given equal weight - used by default
+    # until Diadfit 1.0.18
+        init = model_F.eval(params, x=xdat)
+        result = model_F.fit(ydat, params, x=xdat)
+        comps = result.eval_components()
+
+    elif minimise=='weighted_least_squares':
+        # Operate on total acounts, so add back in baseline
+        total_counts_obs = ydat + py_baseline
+
+        # Calculate weights (1/sigma)
+        weights = 1.0 / np.sqrt(np.maximum(total_counts_obs, 1.0))
+
+        # 4. Final fit
+        # We use scale_covar=True to let lmfit scale the errors based on the
+        # fit quality (the residuals), recomended if we dont know the absolute size of the errors/weights and we dont because there could easily be gain on the detector, other noise sources etc
+        result = model_F.fit(ydat, params, x=xdat,
+                            weights=weights,
+                            scale_covar=True)
+
+
+    else:
+        raise ValueError(
+            f"Invalid minimise option: '{minimise}'. "
+            "Please specify minimise='least_squares' or "
+            "minimise='weighted_least_squares'."
+        )
+
+    # print(f"Fityk-style Weighted RedChi: {result.redchi:.4f}")
+    # print(f"Error: {result.params['lz1_center'].stderr:.5f}")
+    #
+    # print('Weighting accounts for 5 averaged acquisitions and fitted baseline.')
+    # print(f"Reduced Chi-Square 2: {result.redchi}")
+
+    # 6. Evaluate components for plotting
     comps = result.eval_components()
+    reduced_chi_squared = np.sqrt(result.redchi)
 
-    #print(result.ci_report())
-
-    #print(result.conf_interval(method='bootstrap'))
-
-    #print(result.fit_report(min_correl=0.5))
-    # Check if function gives error bars
-
-
+    # Other things
     #print(result.best_values)
     # Get first peak center
     Peak1_Cent=result.best_values.get('lz1_center')
@@ -2535,8 +2568,9 @@ def fit_gaussian_voigt_generic_diad(config1, *, diad1=False, diad2=False, path=N
 
         # Final check - that Gaussian isnt anywhere near the height of the diad
 
-
-    df_out=df_out.fillna(0).infer_objects()
+    df_out['reduced_chi_squared']=reduced_chi_squared
+    df_out = df_out.fillna(0)
+    df_out = df_out.infer_objects(copy=False)
 
     return result, df_out, y_best_fit, x_lin, components, xdat, ydat, ax1_xlim, ax2_xlim, residual_diad_coords, ydat_inrange,  xdat_inrange
 
@@ -2544,7 +2578,7 @@ def fit_gaussian_voigt_generic_diad(config1, *, diad1=False, diad2=False, path=N
 
 def fit_diad_2_w_bck(*, config1: diad2_fit_config=diad2_fit_config(), config2: diad_id_config=diad_id_config(),
     path=None, filename=None, peak_pos_voigt=None,filetype=None, diad_array=None,
-    plot_figure=True, close_figure=False, Diad_pos=None, HB_pos=None, C13_pos=None):
+    plot_figure=True, close_figure=False, Diad_pos=None, HB_pos=None, C13_pos=None, minimise='weighted_least_squares'):
     """ This function fits the background (using the function remove_diad_baseline) and then
     fits the peaks using fit_gaussian_voigt_generic_diad()
     It then checks if any parameters are right at the permitted edge (meaning fitting didnt converge),
@@ -2585,6 +2619,9 @@ def fit_diad_2_w_bck(*, config1: diad2_fit_config=diad2_fit_config(), config2: d
 
     C13_pos: float
         Estimate of C13 peak position
+
+    minimise: str
+        'weighted_least_squares' vs 'least_squares'
 
 
     Returns
@@ -2668,7 +2705,8 @@ def fit_diad_2_w_bck(*, config1: diad2_fit_config=diad2_fit_config(), config2: d
     # Then, we feed this baseline-corrected data into the combined gaussian-voigt peak fitting function
     result, df_out, y_best_fit, x_lin, components, xdat, ydat, ax1_xlim, ax2_xlim,residual_diad_coords, ydat_inrange,  xdat_inrange=fit_gaussian_voigt_generic_diad(config1, diad2=True, path=path, filename=filename,
     xdat=x_diad2, ydat=y_corr_diad2,
-    span=span_diad2, plot_figure=False, Diad_pos=Diad_pos, HB_pos=HB_pos, C13_pos=C13_pos, fit_peaks=fit_peaks)
+    span=span_diad2, plot_figure=False, Diad_pos=Diad_pos, HB_pos=HB_pos, C13_pos=C13_pos, fit_peaks=fit_peaks,
+    py_baseline=Py_base_diad2, minimise=minimise)
 
     if any(df_out['Diad2_refit'].str.contains('Below threshold intensity')):
         print('below your threshold intensity, we have filled with nans')
@@ -2719,7 +2757,8 @@ def fit_diad_2_w_bck(*, config1: diad2_fit_config=diad2_fit_config(), config2: d
 
             result, df_out, y_best_fit, x_lin, components, xdat, ydat, ax1_xlim, ax2_xlim,residual_diad_coords, ydat_inrange,  xdat_inrange=fit_gaussian_voigt_generic_diad(config_tweaked, diad2=True, path=path, filename=filename,
             xdat=x_diad2, ydat=y_corr_diad2,
-        span=span_diad2, plot_figure=False, Diad_pos=Diad_pos, HB_pos=HB_pos, C13_pos=C13_pos, fit_peaks=fit_peaks)
+        span=span_diad2, plot_figure=False, Diad_pos=Diad_pos, HB_pos=HB_pos, C13_pos=C13_pos, fit_peaks=fit_peaks,
+        py_baseline=Py_base_diad2, minimise=minimise)
             i=2
             while str(df_out['Diad2_refit'].iloc[0])!='Flagged Warnings:':
 
@@ -2759,7 +2798,7 @@ def fit_diad_2_w_bck(*, config1: diad2_fit_config=diad2_fit_config(), config2: d
 
 
                 result, df_out, y_best_fit, x_lin, components, xdat, ydat, ax1_xlim, ax2_xlim,residual_diad_coords, ydat_inrange,  xdat_inrange=fit_gaussian_voigt_generic_diad(config_tweaked2, diad2=True, path=path, filename=filename,
-            xdat=x_diad2, ydat=y_corr_diad2, span=span_diad2, plot_figure=False, Diad_pos=Diad_pos, HB_pos=HB_pos, C13_pos=C13_pos, fit_peaks=fit_peaks)
+            xdat=x_diad2, ydat=y_corr_diad2, span=span_diad2, plot_figure=False, Diad_pos=Diad_pos, HB_pos=HB_pos, C13_pos=C13_pos, fit_peaks=fit_peaks, py_baseline=Py_base_diad2,  minimise=minimise)
                 i=i+1
                 if i>5:
                     print('Got to 5 iteratoins and still couldnt adjust the fit parameters')
@@ -2983,6 +3022,7 @@ def fit_diad_2_w_bck(*, config1: diad2_fit_config=diad2_fit_config(), config2: d
     df_out['Diad2_Yuan2017_sym_factor']=(df_out['Diad2_fwhm'])*(df_out['Diad2_Asym50']-1)
     df_out['Diad2_Remigi2021_BSF']=df_out['Diad2_fwhm']/df_out['Diad2_Combofit_Height']
     df_out['Diad2_PDF_Model']=model
+    df_out = df_out.rename(columns={'reduced_chi_squared': 'Diad2_reduced_chi_squared'})
 
 
     if  config1.return_other_params is False:
@@ -2994,7 +3034,7 @@ def fit_diad_2_w_bck(*, config1: diad2_fit_config=diad2_fit_config(), config2: d
 
 
 def fit_diad_1_w_bck(*, config1: diad1_fit_config=diad1_fit_config(), config2: diad_id_config=diad_id_config(),
-    path=None, filename=None, filetype=None,  plot_figure=True, close_figure=True, Diad_pos=None, HB_pos=None, diad_array=None):
+    path=None, filename=None, filetype=None,  plot_figure=True, close_figure=True, Diad_pos=None, HB_pos=None, diad_array=None, minimise='weighted_least_squares'):
     """ This function fits the background (using the function remove_diad_baseline) and then fits the peaks
     using fit_gaussian_voigt_generic_diad()
     It then checks if any parameters are right at the permitted edge (meaning fitting didnt converge),
@@ -3033,6 +3073,9 @@ def fit_diad_1_w_bck(*, config1: diad1_fit_config=diad1_fit_config(), config2: d
 
     close_fig: bool
         if True, displays figure in Notebook. If False, closes it (you can still find it saved)
+
+    minimise: str
+        'weighted_least_squares' or 'least_squares'
 
     Returns
     ------------
@@ -3082,7 +3125,7 @@ def fit_diad_1_w_bck(*, config1: diad1_fit_config=diad1_fit_config(), config2: d
     result, df_out, y_best_fit, x_lin, components, xdat, ydat, ax1_xlim, ax2_xlim,residual_diad_coords, ydat_inrange,  xdat_inrange=fit_gaussian_voigt_generic_diad(config1,diad1=True, path=path, filename=filename,
                     xdat=x_diad1, ydat=y_corr_diad1,
                     span=span_diad1, plot_figure=False,
-                    Diad_pos=Diad_pos, HB_pos=HB_pos,fit_peaks=fit_peaks)
+                    Diad_pos=Diad_pos, HB_pos=HB_pos,fit_peaks=fit_peaks, py_baseline=Py_base_diad1,  minimise=minimise)
 
 
 
@@ -3130,7 +3173,8 @@ def fit_diad_1_w_bck(*, config1: diad1_fit_config=diad1_fit_config(), config2: d
 
         result, df_out, y_best_fit, x_lin, components, xdat, ydat, ax1_xlim, ax2_xlim,residual_diad_coords, ydat_inrange,  xdat_inrange=fit_gaussian_voigt_generic_diad(config_tweaked, diad1=True, path=path, filename=filename,
                     xdat=x_diad1, ydat=y_corr_diad1,
-                    span=span_diad1, plot_figure=False, Diad_pos=Diad_pos, HB_pos=HB_pos, fit_peaks=config_tweaked.fit_peaks)
+                    span=span_diad1, plot_figure=False, Diad_pos=Diad_pos, HB_pos=HB_pos, fit_peaks=config_tweaked.fit_peaks,
+                    py_baseline=Py_base_diad1,  minimise=minimise)
         i=2
         while str(df_out['Diad1_refit'].iloc[0])!='Flagged Warnings:':
 
@@ -3171,7 +3215,8 @@ def fit_diad_1_w_bck(*, config1: diad1_fit_config=diad1_fit_config(), config2: d
 
             result, df_out, y_best_fit, x_lin, components, xdat, ydat, ax1_xlim, ax2_xlim,residual_diad_coords, ydat_inrange,  xdat_inrange=fit_gaussian_voigt_generic_diad(config_tweaked2,diad1=True, path=path, filename=filename,
                     xdat=x_diad1, ydat=y_corr_diad1,
-                    span=span_diad1, plot_figure=False, Diad_pos=Diad_pos, HB_pos=HB_pos, fit_peaks=config_tweaked.fit_peaks)
+                    span=span_diad1, plot_figure=False, Diad_pos=Diad_pos, HB_pos=HB_pos, fit_peaks=config_tweaked.fit_peaks,
+                    py_baseline=Py_base_diad1,  minimise=minimise)
             i=i+1
             if i>5:
                 print('Got to 5 iteratoins and still couldnt adjust the fit parameters')
@@ -3395,6 +3440,7 @@ def fit_diad_1_w_bck(*, config1: diad1_fit_config=diad1_fit_config(), config2: d
 
 
     df_out['Diad1_PDF_Model']=model
+    df_out = df_out.rename(columns={'reduced_chi_squared': 'Diad1_reduced_chi_squared'})
 
     if  config1.return_other_params is False:
         return df_out
@@ -3470,7 +3516,7 @@ to_clipboard=False, path=None):
                     'HB1_Cent', 'HB1_Area', 'HB1_Sigma', 'HB2_Cent', 'HB2_Area', 'HB2_Sigma', 'C13_Cent', 'C13_Area', 'C13_Sigma',
                     'Diad2_Gauss_Cent', 'Diad2_Gauss_Area','Diad2_Gauss_Sigma', 'Diad1_Gauss_Cent', 'Diad1_Gauss_Area','Diad1_Gauss_Sigma', 'Diad1_Asym50', 'Diad1_Asym70', 'Diad1_Yuan2017_sym_factor',
 'Diad1_Remigi2021_BSF','Diad2_Asym50', 'Diad2_Asym70', 'Diad2_Yuan2017_sym_factor',
-'Diad2_Remigi2021_BSF', 'Diad1_PDF_Model', 'Diad2_PDF_Model']
+'Diad2_Remigi2021_BSF', 'Diad1_PDF_Model', 'Diad2_PDF_Model', 'Diad1_reduced_chi_squared', 'Diad2_reduced_chi_squared']
 
 
 

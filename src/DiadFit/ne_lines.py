@@ -911,7 +911,7 @@ lower_bck=None, upper_bck1=None, upper_bck2=None, sigma_baseline=None):
 
 def fit_Ne_pk(x, y_corr, x_span=[-10, 8], Ne_center=1117.1, amplitude=98.1, pk1_sigma=0.28,
 LH_offset_mini=[1.5, 3], peaks_pk1=2, model_name='PseudoVoigtModel', block_print=True,
-const_params=True, spec_res=0.4) :
+const_params=True, spec_res=0.4, py_baseline=None, minimise=None ) :
     """ This function fits the 1117 Ne line as 1 or two voigt peaks
 
     Parameters
@@ -944,6 +944,13 @@ const_params=True, spec_res=0.4) :
 
     print_report: bool
         if True, prints fit report.
+    
+    py_baseline: 
+        Output from the remove_ne_baseline function - needed for weighted least squares
+        
+    minimise: str
+        'weighted_least_squares' or 'least_squares'
+        
 
 
     """
@@ -955,6 +962,7 @@ const_params=True, spec_res=0.4) :
         max_off=3
 
     # Flatten x and y if needed
+
     xdat=x.flatten()
     ydat=y_corr.flatten()
     
@@ -971,6 +979,9 @@ const_params=True, spec_res=0.4) :
     Ne_pk1_reg_y=y_corr[(x>lower_pk1)&(x<upper_pk1)]
     Ne_pk1_reg_x_plot=x[(x>(lower_pk1-3))&(x<(upper_pk1+3))]
     Ne_pk1_reg_y_plot=y_corr[(x>(lower_pk1-3))&(x<(upper_pk1+3))]
+    
+    # Need to do the same for baseline
+    py_baseline2=py_baseline[(x>lower_pk1)&(x<upper_pk1)]
 
     if peaks_pk1>1:
 
@@ -1062,11 +1073,42 @@ const_params=True, spec_res=0.4) :
         pars1['p1_' + 'center'].set(Ne_center, min=Ne_center-2*spec_res,max=Ne_center+2*spec_res)
         pars1['p1_'+ 'sigma'].set(pk1_sigma, min=pk1_sigma*min_off, max=pk1_sigma*max_off)
 
-    
-    result = model_combo.fit(ydat, pars1, x=xdat)
-    
-    init = model_combo.eval(pars1, x=xdat)
+    if minimise=='least_squares':
+        result = model_combo.fit(ydat, pars1, x=xdat)
+        init = model_combo.eval(pars1, x=xdat)
+        
+    elif minimise=='weighted_least_squares':
+        result0 = model_combo.fit(ydat, pars1, x=xdat)
+
+        f_model = result0.best_fit
+
+        # 2. Fityk-style weighting:
+        # We assume the variance is proportional to the observed intensity.
+        # We don't multiply/divide by 5 here, so we don't 'inflate' the errors
+        # beyond what Fityk's standard least-squares would expect.
+        total_counts_obs = f_model + py_baseline
+
+        # 3. Calculate weights (1/sigma)
+        # This keeps the RELATIVE importance of the peaks vs baseline correct.
+        weights = 1.0 / np.sqrt(np.maximum(total_counts_obs, 1.0))
+
+        # 4. Final fit
+        # We use scale_covar=True to let lmfit scale the errors based on the
+        # fit quality (the residuals), recomended if we dont know the absolute size of the errors/weights and we dont because there could easily be gain on the detector.
+        result = model_combo.fit(ydat, result0.params, x=xdat,
+                            weights=weights,
+                            scale_covar=True)
+        init = model_combo.eval(pars1, x=xdat)
+        
+    else:
+        raise ValueError(
+            f"Invalid minimise option: '{minimise}'. "
+            "Please specify minimise='least_squares' or "
+            "minimise='weighted_least_squares'."
+        )
     # Need to check errors output
+    
+    
     Error_bars=result.errorbars
 
     # Get center value
@@ -1161,7 +1203,7 @@ Ne_center_1=1117.1, Ne_center_2=1147, Ne_prom_1=100, Ne_prom_2=200,
 Ne=None, filename=None, path=None, prefix=True,
 plot_figure=True, loop=True,
  save_clipboard=False,
-    close_figure=False, const_params=True):
+    close_figure=False, const_params=True, minimise=None):
 
 
 
@@ -1202,7 +1244,10 @@ plot_figure=True, loop=True,
         
     const_params: bool 
         If true, means amplitude and peak sigma have to be closer to the guessed parameters (e.g. used after initial fit).  
-        E.g. forced within +-20% of estimated peak parameters if True, if false, +-100%.    
+        E.g. forced within +-20% of estimated peak parameters if True, if false, +-100%.   
+        
+    minimise:str
+        'weighted_least_squares' or 'least_squares'
         
 
     config parameters from Ne_peak_config():
@@ -1252,6 +1297,7 @@ plot_figure=True, loop=True,
     Also returns figure. 
     
     """
+    print(minimise)
     # Check model is supported
     if config.model_name not in allowed_models:
         raise ValueError(f"Unsupported model: {config.model_name}. Supported models are: {', '.join(allowed_models)}")
@@ -1298,7 +1344,7 @@ plot_figure=True, loop=True,
     lower_bck=config.lower_bck_pk2, upper_bck1=config.upper_bck1_pk2, upper_bck2=config.upper_bck2_pk2)
 
 
-    # Have the option to override the xspan here from default. Else, trims
+    # If the user hasnt specified a fitting window, it creates one automatically from the upper to lower end of the background window specified. 
     if config.x_span_pk1 is None:
 
         x_span_pk1=[config.lower_bck_pk1[1], config.upper_bck1_pk1[0]]
@@ -1316,10 +1362,10 @@ plot_figure=True, loop=True,
 
     # Fit Pk1
     cent_pk1, Area_pk1, sigma_pk1, gamma_pk1, Ne_pk1_reg_x_plot, Ne_pk1_reg_y_plot, Ne_pk1_reg_x, Ne_pk1_reg_y, xx_pk1, result_pk1, error_pk1, result_pk1_origx, comps, Peak1_Prop_Lor, error_pk1_amp= fit_Ne_pk(x_pk1, y_corr_pk1, x_span=x_span_pk1, Ne_center=Ne_center_1, model_name=config.model_name,  LH_offset_mini=config.LH_offset_mini, peaks_pk1=peaks_1, amplitude=Pk1_Amp, pk1_sigma=config.pk1_sigma,
-    const_params=const_params, spec_res=spec_res)
+    const_params=const_params, spec_res=spec_res, py_baseline=Py_base_pk1, minimise=minimise)
 
     # Fit pk2 
-    cent_pk2,Area_pk2, sigma_pk2, gamma_pk2, Ne_pk2_reg_x_plot, Ne_pk2_reg_y_plot, Ne_pk2_reg_x, Ne_pk2_reg_y, xx_pk2, result_pk2, error_pk2, result_pk2_origx, comps2, Peak2_Prop_Lor, error_pk2_amp = fit_Ne_pk( x_pk2, y_corr_pk2, x_span=x_span_pk2,  Ne_center=Ne_center_2, model_name=config.model_name, LH_offset_mini=config.LH_offset_mini2, peaks_pk1=peaks_2, amplitude=Pk2_Amp, pk1_sigma=config.pk2_sigma, const_params=const_params,spec_res=spec_res)
+    cent_pk2,Area_pk2, sigma_pk2, gamma_pk2, Ne_pk2_reg_x_plot, Ne_pk2_reg_y_plot, Ne_pk2_reg_x, Ne_pk2_reg_y, xx_pk2, result_pk2, error_pk2, result_pk2_origx, comps2, Peak2_Prop_Lor, error_pk2_amp = fit_Ne_pk( x_pk2, y_corr_pk2, x_span=x_span_pk2,  Ne_center=Ne_center_2, model_name=config.model_name, LH_offset_mini=config.LH_offset_mini2, peaks_pk1=peaks_2, amplitude=Pk2_Amp, pk1_sigma=config.pk2_sigma, const_params=const_params,spec_res=spec_res, py_baseline=Py_base_pk2, minimise=minimise)
 
 
     # Calculate difference between peak centers, and Delta Ne
@@ -1634,7 +1680,9 @@ def plot_Ne_corrections(df=None, x_axis=None, x_label='index', marker='o', mec='
 ## Looping Ne lines
 def loop_Ne_lines(*, files, spectra_path, filetype,
         config, config_ID_peaks, df_fit_params=None, prefix=False, print_df=False,
-                  plot_figure=True, single_acq=False, const_params=True):
+                  plot_figure=True, single_acq=False, const_params=True, minimise=None):
+                      
+
 
     df = pd.DataFrame([])
     # This is for repeated acquisition of Ne lines
@@ -1656,7 +1704,7 @@ def loop_Ne_lines(*, files, spectra_path, filetype,
             Ne_prom_1=df_fit_params['Peak1_prom'].iloc[0],
             Ne_prom_2=df_fit_params['Peak2_prom'].iloc[0],
             const_params=const_params,
-            plot_figure=plot_figure)
+            plot_figure=plot_figure, minimise=minimise)
             df = pd.concat([df, data], axis=0)
 
     else:
@@ -1675,7 +1723,7 @@ def loop_Ne_lines(*, files, spectra_path, filetype,
             Ne_prom_1=df_fit_params['Peak1_prom'].iloc[0],
             Ne_prom_2=df_fit_params['Peak2_prom'].iloc[0],
             const_params=const_params,
-            plot_figure=plot_figure)
+            plot_figure=plot_figure, minimise=minimise)
             df = pd.concat([df, data], axis=0)
 
 

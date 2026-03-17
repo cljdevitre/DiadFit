@@ -3,6 +3,10 @@
 Change Log
 ================
 
+March 17th, 2026  Penny Wieser - V.1.0.19
+-------------------------------------------
+Following reviewer comments, changed minimisation to use weighted least squares, rather than least squares. This is now default behavoir for diads, for Neon, it is not, but setting minimise='weighted_least_squares' will use it. We suggest you only swap the Ne if you fitted your calibration data using weighted least squares, as we see a slightly larger shift in Ne peak position than for diads, and consistency with Neon lines is key.
+
 Jan 21st, 2026  Penny Wieser - V.1.0.16
 -------------------------------------------
 Fixed bug where cosmic ray CRR code wasnt actually editing the file if it wasnt a headless_txt file - was just returning the original data
