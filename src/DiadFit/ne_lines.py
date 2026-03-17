@@ -911,7 +911,7 @@ lower_bck=None, upper_bck1=None, upper_bck2=None, sigma_baseline=None):
 
 def fit_Ne_pk(x, y_corr, x_span=[-10, 8], Ne_center=1117.1, amplitude=98.1, pk1_sigma=0.28,
 LH_offset_mini=[1.5, 3], peaks_pk1=2, model_name='PseudoVoigtModel', block_print=True,
-const_params=True, spec_res=0.4, py_baseline=None, minimise=None ) :
+const_params=True, spec_res=0.4, py_baseline=None, minimise='weighted_least_squares' ) :
     """ This function fits the 1117 Ne line as 1 or two voigt peaks
 
     Parameters
@@ -1203,7 +1203,7 @@ Ne_center_1=1117.1, Ne_center_2=1147, Ne_prom_1=100, Ne_prom_2=200,
 Ne=None, filename=None, path=None, prefix=True,
 plot_figure=True, loop=True,
  save_clipboard=False,
-    close_figure=False, const_params=True, minimise=None):
+    close_figure=False, const_params=True, minimise='weighted_least_squares'):
 
 
 
@@ -1680,7 +1680,7 @@ def plot_Ne_corrections(df=None, x_axis=None, x_label='index', marker='o', mec='
 ## Looping Ne lines
 def loop_Ne_lines(*, files, spectra_path, filetype,
         config, config_ID_peaks, df_fit_params=None, prefix=False, print_df=False,
-                  plot_figure=True, single_acq=False, const_params=True, minimise=None):
+                  plot_figure=True, single_acq=False, const_params=True, minimise='weighted_least_squares'):
                       
 
 
