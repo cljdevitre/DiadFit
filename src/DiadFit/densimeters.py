@@ -1242,7 +1242,7 @@ CI_split=0.67, CI_neon=0.67,  Ne_pickle_str=None, Ar_pickle_str=None, pref_Ne=No
     # Impossible densities, room T
     Imposs_upper_end=(df['Corrected_Splitting']<105.3438707618937+offset)# & (df['Splitting']>103.88+offset)  
     df.loc[zero, 'Preferred D']=0
-    df.loc[zero, 'Notes']=0
+    df.loc[zero, 'Notes']=pd.NA
     
     # Assign to the right type to avoid annoying pandas 2 warning
     # Ensure the columns are of type float64
